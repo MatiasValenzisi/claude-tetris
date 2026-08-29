@@ -1,0 +1,61 @@
+name: Claude Issue Triage
+
+on:
+  issues:
+    types: [opened, edited]
+
+jobs:
+  triage:
+    # Solo cuando se abre el issue, o cuando se edita su cuerpo (no en cada cambio de label/assignee)
+    if: |
+      github.event.action == 'opened' ||
+      (github.event.action == 'edited' && github.event.changes.body != null)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+      id-token: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Run Claude Issue Triage
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          claude_args: '--allowedTools "Bash(gh label list:*),Bash(gh label create:*),Bash(gh issue edit:*),Bash(gh issue view:*),Bash(gh issue comment:*)"'
+          prompt: |
+            Estás triando el issue #${{ github.event.issue.number }} del repositorio ${{ github.repository }}.
+            Este es un proyecto de Tetris en Vanilla-JS (index.html, style.css, game.js). El texto de la UI es en español.
+
+            Pasos:
+            1. Lee el issue completo con: gh issue view ${{ github.event.issue.number }} --json title,body,labels
+            2. Lista las labels disponibles del repo con: gh label list
+               - Si falta alguna label claramente necesaria (por ejemplo: bug, enhancement, feature, question,
+                 documentation, gameplay, rendering, input, scoring, ui, performance), créala con
+                 gh label create "<nombre>" --description "<desc>" --color "<hex sin #>"
+            3. Asigna al issue las labels apropiadas con:
+                 gh issue edit ${{ github.event.issue.number }} --add-label "label1,label2"
+               Quita labels que ya no apliquen con --remove-label si corresponde.
+            4. Publica UN comentario en el issue con gh issue comment ${{ github.event.issue.number }} --body "..."
+               que contenga un diagnóstico general del problema, escrito en español y en markdown, con esta estructura:
+
+               ## Diagnóstico
+
+               **Resumen:** qué se pide o qué falla, en 1-2 frases.
+
+               **Tipo:** bug / mejora / feature / pregunta / documentación.
+
+               **Archivos y funciones probablemente involucradas:** lista concreta apuntando a game.js / index.html / style.css
+               y a las funciones relevantes (collide, tryRotate, lockPiece, spawn, clearLines, loop, draw, drawNext, init, etc.).
+
+               **Causa probable / enfoque de solución:** análisis técnico de por qué ocurre (si es bug) y qué cambios
+               harían falta, sin escribir el código todavía.
+
+               **Riesgos y casos borde a tener en cuenta.**
+
+               **Preguntas abiertas:** si algo del issue no está claro.
+
+            No modifiques código ni abras PRs. Solo etiquetar y comentar el diagnóstico.
