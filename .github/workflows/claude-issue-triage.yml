@@ -40,7 +40,13 @@ jobs:
                  gh issue edit ${{ github.event.issue.number }} --add-label "label1,label2"
                Quita labels que ya no apliquen con --remove-label si corresponde.
             4. Publica UN comentario en el issue con gh issue comment ${{ github.event.issue.number }} --body "..."
-               que contenga un diagnóstico general del problema, escrito en español y en markdown, con esta estructura:
+               que contenga un diagnóstico general del problema, escrito en español y en markdown.
+               El comentario DEBE estar formateado en GitHub Flavored Markdown válido, de modo que GitHub
+               lo renderice correctamente: usa encabezados con "## ", texto en negrita con **...**, listas
+               con "- " al inicio de línea, nombres de archivos y funciones entre backticks (`game.js`,
+               `collide`), y bloques de código con triple backtick indicando el lenguaje (```js). Deja una
+               línea en blanco entre párrafos, entre un encabezado y su contenido, y antes y después de
+               cada lista o bloque de código. Estructura:
 
                ## Diagnóstico
 
