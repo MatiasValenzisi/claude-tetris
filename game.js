@@ -14,7 +14,20 @@ const COLORS = [
   '#90caf9', // J - pale blue
   '#ffb74d', // L - orange
   '#b0bec5', // tuerca - metal grey
+  '#455a64', // 9  bomba - gris oscuro
+  '#fff176', // 10 rayo - amarillo
+  '#f06292', // 11 tinte - magenta
+  '#64b5f6', // 12 gravedad - azul
+  '#b2ebf2', // 13 congelar - cian claro
+  '#ffca28', // 14 comodin - dorado
 ];
+
+const POWER_TYPES = { BOMB: 9, BOLT: 10, DYE: 11, GRAVITY: 12, FREEZE: 13 };
+const WILDCARD = 14;
+const POWER_LIST = [9, 10, 11, 12, 13];
+const POWER_GLYPHS = { 9: '💣', 10: '⚡', 11: '🎨', 12: '↓', 13: '❄', 14: '★' };
+const POWER_EVERY = 10;
+const FREEZE_MS = 5000;
 
 const PIECES = [
   null,
@@ -47,6 +60,7 @@ const restartBtn = document.getElementById('restart-btn');
 const themeToggle = document.getElementById('theme-toggle');
 
 let board, current, next, score, lines, level, paused, gameOver, lastTime, dropAccum, dropInterval, animId;
+let linesSincePower, freezeRemaining;
 let theme = 'dark';
 
 function createBoard() {
@@ -54,6 +68,11 @@ function createBoard() {
 }
 
 function randomPiece() {
+  if (linesSincePower >= POWER_EVERY) {
+    linesSincePower = 0;
+    const type = POWER_LIST[Math.floor(Math.random() * POWER_LIST.length)];
+    return { type, shape: [[type]], x: Math.floor(COLS / 2), y: 0, power: true };
+  }
   const type = Math.floor(Math.random() * 8) + 1;
   const shape = PIECES[type].map(row => [...row]);
   return { type, shape, x: Math.floor(COLS / 2) - Math.floor(shape[0].length / 2), y: 0 };
@@ -102,8 +121,10 @@ function merge() {
 
 function clearLines() {
   let cleared = 0;
+  let wildInvolved = false;
   for (let r = ROWS - 1; r >= 0; r--) {
     if (board[r].every(v => v !== 0)) {
+      if (board[r].includes(WILDCARD)) wildInvolved = true;
       board.splice(r, 1);
       board.unshift(new Array(COLS).fill(0));
       cleared++;
@@ -112,7 +133,8 @@ function clearLines() {
   }
   if (cleared) {
     lines += cleared;
-    score += (LINE_SCORES[cleared] || 0) * level;
+    linesSincePower += cleared;
+    score += (LINE_SCORES[cleared] || 0) * level * (wildInvolved ? 2 : 1);
     level = Math.floor(lines / 10) + 1;
     dropInterval = Math.max(100, 1000 - (level - 1) * 90);
     updateHUD();
@@ -143,9 +165,54 @@ function softDrop() {
 }
 
 function lockPiece() {
+  const px = current.x, py = current.y;
   merge();
+  if (current.type >= 9) applyPower(current.type, px, py);
   clearLines();
   spawn();
+}
+
+function applyPower(type, x, y) {
+  let destroyed = 0;
+  if (type === POWER_TYPES.BOMB) {
+    for (let r = y - 1; r <= y + 1; r++)
+      for (let c = x - 1; c <= x + 1; c++)
+        if (r >= 0 && r < ROWS && c >= 0 && c < COLS && board[r][c]) { board[r][c] = 0; destroyed++; }
+    score += destroyed * 10 * level;
+  } else if (type === POWER_TYPES.BOLT) {
+    for (let c = 0; c < COLS; c++) if (y >= 0 && y < ROWS && board[y][c]) { board[y][c] = 0; destroyed++; }
+    for (let r = 0; r < ROWS; r++) if (x >= 0 && x < COLS && board[r][x]) { board[r][x] = 0; destroyed++; }
+    score += destroyed * 10 * level;
+  } else if (type === POWER_TYPES.DYE) {
+    if (y >= 0 && y < ROWS) board[y][x] = 0;
+    const freq = {};
+    for (let r = 0; r < ROWS; r++)
+      for (let c = 0; c < COLS; c++) {
+        const v = board[r][c];
+        if (v >= 1 && v <= 8) freq[v] = (freq[v] || 0) + 1;
+      }
+    let best = 0, bestCount = 0;
+    for (const v in freq) if (freq[v] > bestCount) { bestCount = freq[v]; best = +v; }
+    if (best) {
+      for (let r = 0; r < ROWS; r++)
+        for (let c = 0; c < COLS; c++)
+          if (board[r][c] === best) board[r][c] = WILDCARD;
+    }
+    score += 50 * level;
+  } else if (type === POWER_TYPES.GRAVITY) {
+    if (y >= 0 && y < ROWS) board[y][x] = 0;
+    for (let c = 0; c < COLS; c++) {
+      const stack = [];
+      for (let r = ROWS - 1; r >= 0; r--) if (board[r][c]) stack.push(board[r][c]);
+      for (let r = ROWS - 1; r >= 0; r--) board[r][c] = stack.length ? stack.shift() : 0;
+    }
+    score += 50 * level;
+  } else if (type === POWER_TYPES.FREEZE) {
+    if (y >= 0 && y < ROWS) board[y][x] = 0;
+    freezeRemaining = FREEZE_MS;
+    score += 50 * level;
+  }
+  updateHUD();
 }
 
 function spawn() {
@@ -173,6 +240,14 @@ function drawBlock(context, x, y, colorIndex, size, alpha) {
   // highlight
   context.fillStyle = 'rgba(255,255,255,0.12)';
   context.fillRect(x * size + 1, y * size + 1, size - 2, 4);
+  const glyph = POWER_GLYPHS[colorIndex];
+  if (glyph) {
+    context.fillStyle = '#1a1a25';
+    context.font = `${Math.floor(size * 0.6)}px system-ui, sans-serif`;
+    context.textAlign = 'center';
+    context.textBaseline = 'middle';
+    context.fillText(glyph, x * size + size / 2, y * size + size / 2 + 1);
+  }
   context.globalAlpha = 1;
 }
 
@@ -213,6 +288,14 @@ function draw() {
   for (let r = 0; r < current.shape.length; r++)
     for (let c = 0; c < current.shape[r].length; c++)
       drawBlock(ctx, current.x + c, current.y + r, current.shape[r][c], BLOCK);
+
+  if (freezeRemaining > 0) {
+    ctx.fillStyle = '#b2ebf2';
+    ctx.font = '14px system-ui, sans-serif';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+    ctx.fillText(`❄ ${(freezeRemaining / 1000).toFixed(1)}s`, 6, 6);
+  }
 }
 
 function drawNext() {
@@ -252,6 +335,14 @@ function togglePause() {
 function loop(ts) {
   const dt = ts - lastTime;
   lastTime = ts;
+  if (freezeRemaining > 0) {
+    freezeRemaining = Math.max(0, freezeRemaining - dt);
+    if (!gameOver) {
+      draw();
+      animId = requestAnimationFrame(loop);
+    }
+    return;
+  }
   dropAccum += dt;
   if (dropAccum >= dropInterval) {
     dropAccum = 0;
@@ -275,6 +366,8 @@ function init() {
   gameOver = false;
   dropInterval = 1000;
   dropAccum = 0;
+  linesSincePower = 0;
+  freezeRemaining = 0;
   lastTime = performance.now();
   next = randomPiece();
   spawn();
